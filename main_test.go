@@ -16,7 +16,7 @@ func TestCLI(t *testing.T) {
 	if err := os.Mkdir(coverage, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	build := exec.Command("go", "build", "-cover", "-o", binary, ".")
+	build := exec.Command("go", "build", "-buildvcs=false", "-cover", "-o", binary, ".")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build failed: %s: %v", output, err)
 	}
@@ -61,6 +61,7 @@ esac
 		{name: "view failure", args: []string{"--context", "dev"}, current: "prod-gke", fail: "view", want: "view failed", calls: "config current-context\nconfig view --minify -o jsonpath={.contexts[0].context.namespace}\n", failure: true},
 		{name: "switch failure", args: []string{"--context", "dev", "--namespace", "loon"}, fail: "use", want: "switch failed", calls: "config use-context dev-gke\n", failure: true},
 		{name: "namespace failure", args: []string{"--context", "dev", "--namespace", "loon"}, fail: "set", want: "context may have changed to dev-gke", calls: "config use-context dev-gke\nconfig set-context --current --namespace=loon\n", failure: true},
+		{name: "version", args: []string{"--version"}, want: "dev\n"},
 		{name: "help", args: []string{"--help"}, want: "Usage of"},
 		{name: "unknown flag", args: []string{"--unknown"}, want: "flag provided but not defined", failure: true},
 	}
@@ -92,6 +93,44 @@ esac
 		output, err := cmd.CombinedOutput()
 		if err == nil || !strings.Contains(string(output), "kubectl") {
 			t.Fatalf("expected missing kubectl error, got %v: %s", err, output)
+		}
+	})
+
+	t.Run("release version", func(t *testing.T) {
+		release := filepath.Join(t.TempDir(), "kctx")
+		build := exec.Command("go", "build", "-cover", "-ldflags", "-X main.version=v1.2.3", "-o", release, ".")
+		if output, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("release build failed: %v: %s", err, output)
+		}
+		cmd := exec.Command(release, "--version")
+		cmd.Env = append(os.Environ(), "PATH="+t.TempDir(), "GOCOVERDIR="+coverage)
+		output, err := cmd.CombinedOutput()
+		if err != nil || string(output) != "v1.2.3\n" {
+			t.Fatalf("version = %q, error = %v; want v1.2.3", output, err)
+		}
+	})
+
+	t.Run("module version", func(t *testing.T) {
+		root, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		moduleDir := t.TempDir()
+		module := "module example.com/versiontest\n\ngo 1.21\n\nrequire github.com/chrisjones-brack3t/kctx v1.2.3\n\nreplace github.com/chrisjones-brack3t/kctx => " + filepath.ToSlash(root) + "\n"
+		if err := os.WriteFile(filepath.Join(moduleDir, "go.mod"), []byte(module), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		binary := filepath.Join(moduleDir, "kctx")
+		build := exec.Command("go", "build", "-cover", "-o", binary, "github.com/chrisjones-brack3t/kctx")
+		build.Dir = moduleDir
+		if output, err := build.CombinedOutput(); err != nil {
+			t.Fatalf("module build failed: %v: %s", err, output)
+		}
+		cmd := exec.Command(binary, "--version")
+		cmd.Env = append(os.Environ(), "PATH="+t.TempDir(), "GOCOVERDIR="+coverage)
+		output, err := cmd.CombinedOutput()
+		if err != nil || string(output) != "v1.2.3\n" {
+			t.Fatalf("version = %q, error = %v; want v1.2.3", output, err)
 		}
 	})
 

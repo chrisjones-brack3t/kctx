@@ -52,11 +52,14 @@ kctx --context prod
 
 This carries the current context's namespace to `prod-gke`. If the current context has no namespace set, `kctx` uses `default`. The current context can have any name for this operation.
 
-See the available flags:
+Check the installed version or see the available flags:
 
 ```sh
+kctx --version
 kctx --help
 ```
+
+Release binaries and Go-installed versions report their version tag. Local builds report the version supplied by Go, or `dev` when no version is available.
 
 At least one flag is required. Empty namespaces and context values other than `dev` and `prod` are rejected. Kubernetes stores the namespace on the context, so changing it affects later `kubectl` commands using that context. If setting the namespace fails, the context may already have switched; check the error before continuing.
 

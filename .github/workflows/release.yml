@@ -18,11 +18,13 @@ jobs:
           go-version-file: go.mod
           cache: false
       - name: Build binaries
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
           mkdir -p dist
           for os in darwin linux; do
             for arch in amd64 arm64; do
-              GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -o "dist/kctx-${os}-${arch}" .
+              GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -ldflags "-X main.version=$TAG" -o "dist/kctx-${os}-${arch}" .
             done
           done
       - name: Publish release

@@ -5,8 +5,23 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 )
+
+// version is set to the release tag when building release binaries.
+var version string
+
+// buildVersion returns the release tag or the version recorded by Go.
+func buildVersion() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
+}
 
 // kubectl runs a kubectl command and returns its output or an error.
 func kubectl(args ...string) (string, error) {
@@ -25,7 +40,12 @@ func kubectl(args ...string) (string, error) {
 func run() error {
 	context := flag.String("context", "", "context to use: dev or prod")
 	namespace := flag.String("namespace", "", "namespace to use")
+	showVersion := flag.Bool("version", false, "show the version")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(buildVersion())
+		return nil
+	}
 
 	provided := map[string]bool{}
 	flag.Visit(func(f *flag.Flag) { provided[f.Name] = true })
