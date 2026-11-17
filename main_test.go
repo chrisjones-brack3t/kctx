@@ -27,9 +27,6 @@ case "$*" in
   'config current-context')
     if [ "$FAIL" = current ]; then echo 'current failed' >&2; exit 1; fi
     printf '%s' "$CURRENT" ;;
-  'config view --minify -o jsonpath={.contexts[0].context.namespace}')
-    if [ "$FAIL" = view ]; then echo 'view failed' >&2; exit 1; fi
-    printf '%s' "$NAMESPACE" ;;
   'config use-context '*)
     if [ "$FAIL" = use ]; then echo 'switch failed' >&2; exit 1; fi ;;
   'config set-context --current --namespace='*)
@@ -42,25 +39,26 @@ esac
 	}
 
 	tests := []struct {
-		name, current, namespace, fail, want, calls string
-		args                                        []string
-		failure                                     bool
+		name, current, fail, want, calls string
+		args                             []string
+		failure                          bool
 	}{
-		{name: "both", args: []string{"--context", "dev", "--namespace", "loon"}, want: "Context: dev-gke\nNamespace: loon", calls: "config use-context dev-gke\nconfig set-context --current --namespace=loon\n"},
-		{name: "prod", args: []string{"--context", "prod", "--namespace", "books"}, want: "Context: prod-gke", calls: "config use-context prod-gke\nconfig set-context --current --namespace=books\n"},
-		{name: "namespace only", args: []string{"--namespace", "loon"}, current: "prod-gke", want: "Namespace: loon", calls: "config current-context\nconfig use-context prod-gke\nconfig set-context --current --namespace=loon\n"},
-		{name: "context only", args: []string{"--context", "prod"}, current: "dev-gke", namespace: "loon", want: "Namespace: loon", calls: "config current-context\nconfig view --minify -o jsonpath={.contexts[0].context.namespace}\nconfig use-context prod-gke\nconfig set-context --current --namespace=loon\n"},
-		{name: "default namespace", args: []string{"--context", "dev"}, current: "prod-gke", want: "Namespace: default", calls: "config current-context\nconfig view --minify -o jsonpath={.contexts[0].context.namespace}\nconfig use-context dev-gke\nconfig set-context --current --namespace=default\n"},
+		{name: "both long", args: []string{"--context", "dev-gke", "--namespace", "loon"}, want: "Context: dev-gke\nNamespace: loon", calls: "config use-context dev-gke\nconfig set-context --current --namespace=loon\n"},
+		{name: "both short", args: []string{"-c", "my-cluster", "-n", "books"}, want: "Context: my-cluster\nNamespace: books", calls: "config use-context my-cluster\nconfig set-context --current --namespace=books\n"},
+		{name: "mixed flags", args: []string{"-c", "dev", "--namespace", "loon"}, want: "Context: dev", calls: "config use-context dev\nconfig set-context --current --namespace=loon\n"},
+		{name: "namespace only", args: []string{"-n", "loon"}, current: "other", want: "Context: other\nNamespace: loon", calls: "config current-context\nconfig set-context --current --namespace=loon\n"},
+		{name: "context only", args: []string{"-c", "prod-gke"}, want: "Context: prod-gke", calls: "config use-context prod-gke\n"},
 		{name: "no flags", want: "provide --context", failure: true},
 		{name: "positional argument", args: []string{"oops"}, want: "unexpected positional arguments", failure: true},
 		{name: "empty namespace", args: []string{"--namespace="}, want: "namespace cannot be empty", failure: true},
-		{name: "invalid context", args: []string{"--context", "other"}, want: "context must be dev or prod", failure: true},
+		{name: "empty context", args: []string{"-c="}, want: "context cannot be empty", failure: true},
+		{name: "duplicate context", args: []string{"-c", "a", "--context", "b"}, want: "use either --context or -c", failure: true},
+		{name: "duplicate namespace", args: []string{"-n", "a", "--namespace", "b"}, want: "use either --namespace or -n", failure: true},
 		{name: "current failure", args: []string{"--namespace", "loon"}, fail: "current", want: "current failed", calls: "config current-context\n", failure: true},
 		{name: "empty current", args: []string{"--namespace", "loon"}, want: "current context is empty", calls: "config current-context\n", failure: true},
-		{name: "other current", args: []string{"--namespace", "loon"}, current: "other", want: "is not dev-gke or prod-gke", calls: "config current-context\n", failure: true},
-		{name: "view failure", args: []string{"--context", "dev"}, current: "prod-gke", fail: "view", want: "view failed", calls: "config current-context\nconfig view --minify -o jsonpath={.contexts[0].context.namespace}\n", failure: true},
-		{name: "switch failure", args: []string{"--context", "dev", "--namespace", "loon"}, fail: "use", want: "switch failed", calls: "config use-context dev-gke\n", failure: true},
-		{name: "namespace failure", args: []string{"--context", "dev", "--namespace", "loon"}, fail: "set", want: "context may have changed to dev-gke", calls: "config use-context dev-gke\nconfig set-context --current --namespace=loon\n", failure: true},
+		{name: "switch failure", args: []string{"--context", "dev-gke", "--namespace", "loon"}, fail: "use", want: "switch failed", calls: "config use-context dev-gke\n", failure: true},
+		{name: "namespace failure", args: []string{"--context", "dev-gke", "--namespace", "loon"}, fail: "set", want: "context may have changed to dev-gke", calls: "config use-context dev-gke\nconfig set-context --current --namespace=loon\n", failure: true},
+		{name: "namespace-only failure", args: []string{"-n", "loon"}, current: "other", fail: "set", want: "set failed", calls: "config current-context\nconfig set-context --current --namespace=loon\n", failure: true},
 		{name: "version", args: []string{"--version"}, want: "dev\n"},
 		{name: "help", args: []string{"--help"}, want: "Usage of"},
 		{name: "unknown flag", args: []string{"--unknown"}, want: "flag provided but not defined", failure: true},
@@ -69,7 +67,7 @@ esac
 		t.Run(tc.name, func(t *testing.T) {
 			calls := filepath.Join(t.TempDir(), "calls")
 			cmd := exec.Command(binary, tc.args...)
-			cmd.Env = append(os.Environ(), "PATH="+dir, "GOCOVERDIR="+coverage, "CALLS="+calls, "CURRENT="+tc.current, "NAMESPACE="+tc.namespace, "FAIL="+tc.fail)
+			cmd.Env = append(os.Environ(), "PATH="+dir, "GOCOVERDIR="+coverage, "CALLS="+calls, "CURRENT="+tc.current, "FAIL="+tc.fail)
 			output, err := cmd.CombinedOutput()
 			if (err != nil) != tc.failure {
 				t.Fatalf("unexpected exit: %v, output: %s", err, output)

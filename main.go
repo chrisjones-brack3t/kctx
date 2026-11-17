@@ -38,8 +38,10 @@ func kubectl(args ...string) (string, error) {
 
 // run reads the flags and updates the selected context and namespace.
 func run() error {
-	context := flag.String("context", "", "context to use: dev or prod")
+	context := flag.String("context", "", "context to use")
+	flag.StringVar(context, "c", "", "context to use (short form)")
 	namespace := flag.String("namespace", "", "namespace to use")
+	flag.StringVar(namespace, "n", "", "namespace to use (short form)")
 	showVersion := flag.Bool("version", false, "show the version")
 	flag.Parse()
 	if *showVersion {
@@ -52,27 +54,29 @@ func run() error {
 	if flag.NArg() != 0 {
 		return fmt.Errorf("unexpected positional arguments: %s", strings.Join(flag.Args(), " "))
 	}
-	if !provided["context"] && !provided["namespace"] {
+	if provided["context"] && provided["c"] {
+		return fmt.Errorf("use either --context or -c, not both")
+	}
+	if provided["namespace"] && provided["n"] {
+		return fmt.Errorf("use either --namespace or -n, not both")
+	}
+	hasContext := provided["context"] || provided["c"]
+	hasNamespace := provided["namespace"] || provided["n"]
+	if !hasContext && !hasNamespace {
 		return fmt.Errorf("provide --context, --namespace, or both")
 	}
-	if provided["namespace"] && *namespace == "" {
+	if hasContext && *context == "" {
+		return fmt.Errorf("context cannot be empty")
+	}
+	if hasNamespace && *namespace == "" {
 		return fmt.Errorf("namespace cannot be empty")
 	}
 
-	target := ""
-	if provided["context"] {
-		switch *context {
-		case "dev":
-			target = "dev-gke"
-		case "prod":
-			target = "prod-gke"
-		default:
-			return fmt.Errorf("context must be dev or prod")
+	if hasContext {
+		if _, err := kubectl("config", "use-context", *context); err != nil {
+			return err
 		}
-	}
-
-	// Read missing values before switching, while the old context is current.
-	if !provided["context"] || !provided["namespace"] {
+	} else {
 		current, err := kubectl("config", "current-context")
 		if err != nil {
 			return err
@@ -80,31 +84,21 @@ func run() error {
 		if current == "" {
 			return fmt.Errorf("current context is empty")
 		}
-		if !provided["context"] {
-			if current != "dev-gke" && current != "prod-gke" {
-				return fmt.Errorf("current context %q is not dev-gke or prod-gke", current)
-			}
-			target = current
-		}
-		if !provided["namespace"] {
-			value, err := kubectl("config", "view", "--minify", "-o", "jsonpath={.contexts[0].context.namespace}")
-			if err != nil {
-				return err
-			}
-			if value == "" {
-				value = "default"
-			}
-			*namespace = value
-		}
+		*context = current
 	}
 
-	if _, err := kubectl("config", "use-context", target); err != nil {
-		return err
+	// A context-only switch keeps the target's existing namespace.
+	if hasNamespace {
+		if _, err := kubectl("config", "set-context", "--current", "--namespace="+*namespace); err != nil {
+			if hasContext {
+				return fmt.Errorf("context may have changed to %s; setting namespace failed: %w", *context, err)
+			}
+			return err
+		}
+		fmt.Printf("Context: %s\nNamespace: %s\n", *context, *namespace)
+	} else {
+		fmt.Printf("Context: %s\n", *context)
 	}
-	if _, err := kubectl("config", "set-context", "--current", "--namespace="+*namespace); err != nil {
-		return fmt.Errorf("context may have changed to %s; setting namespace failed: %w", target, err)
-	}
-	fmt.Printf("Context: %s\nNamespace: %s\n", target, *namespace)
 	return nil
 }
 
